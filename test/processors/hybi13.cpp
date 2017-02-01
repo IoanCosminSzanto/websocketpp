@@ -62,6 +62,7 @@ struct stub_config {
 
     static const size_t max_message_size = 16000000;
     static const bool enable_extensions = false;
+    static const size_t min_send_buffer_size = 0;
 };
 
 struct stub_config_ext {
@@ -84,6 +85,7 @@ struct stub_config_ext {
 
     static const size_t max_message_size = 16000000;
     static const bool enable_extensions = true;
+    static const size_t min_send_buffer_size = 0;
 };
 
 typedef stub_config::con_msg_manager_type con_msg_manager_type;
@@ -493,9 +495,9 @@ BOOST_AUTO_TEST_CASE( prepare_data_frame ) {
 
 BOOST_AUTO_TEST_CASE( single_frame_message_too_large ) {
     processor_setup env(true);
-    
+
     env.p.set_max_message_size(3);
-    
+
     uint8_t frame0[10] = {0x82, 0x84, 0x00, 0x00, 0x00, 0x00, 0x01, 0x01, 0x01, 0x01};
 
     // read message that is one byte too large
@@ -505,16 +507,16 @@ BOOST_AUTO_TEST_CASE( single_frame_message_too_large ) {
 
 BOOST_AUTO_TEST_CASE( multiple_frame_message_too_large ) {
     processor_setup env(true);
-    
+
     env.p.set_max_message_size(4);
-    
+
     uint8_t frame0[8] = {0x02, 0x82, 0x00, 0x00, 0x00, 0x00, 0x01, 0x01};
     uint8_t frame1[9] = {0x80, 0x83, 0x00, 0x00, 0x00, 0x00, 0x01, 0x01, 0x01};
 
     // read first message frame with size under the limit
     BOOST_CHECK_EQUAL( env.p.consume(frame0,8,env.ec), 8 );
     BOOST_CHECK( !env.ec );
-    
+
     // read second message frame that puts the size over the limit
     BOOST_CHECK_EQUAL( env.p.consume(frame1,9,env.ec), 6 );
     BOOST_CHECK_EQUAL( env.ec, websocketpp::processor::error::message_too_big );
