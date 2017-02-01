@@ -150,6 +150,13 @@ typedef lib::function<bool(connection_hdl)> validate_handler;
  */
 typedef lib::function<void(connection_hdl)> http_handler;
 
+/// The type and function signature of a resume send handler
+/**
+ * The handler is called when the amount of buffered bytes drops lower thab
+ * the minimum buffered size and the send can resume.
+ */
+typedef lib::function<void(connection_hdl)> resume_send_handler;
+
 //
 typedef lib::function<void(lib::error_code const & ec, size_t bytes_transferred)> read_handler;
 typedef lib::function<void(lib::error_code const & ec)> write_frame_handler;
@@ -319,6 +326,7 @@ public:
       , m_send_buffer_size(0)
       , m_write_flag(false)
       , m_read_flag(true)
+      , m_min_send_buffer_flag(false)
       , m_is_server(p_is_server)
       , m_alog(alog)
       , m_elog(elog)
@@ -474,6 +482,17 @@ public:
         m_message_handler = h;
     }
 
+    /// Set resume send handler
+    /**
+     * The handler is called when the amount of buffered bytes is below the
+     * threshold.
+     *
+     * @param h The new can_write_handler
+     */
+    void set_resume_send_handler(resume_send_handler h) {
+        m_resume_send_handler = h;
+    }
+
     //////////////////////////////////////////
     // Connection timeouts and other limits //
     //////////////////////////////////////////
@@ -549,7 +568,7 @@ public:
 
     /// Get maximum message size
     /**
-     * Get maximum message size. Maximum message size determines the point at 
+     * Get maximum message size. Maximum message size determines the point at
      * which the connection will fail with the message_too_big protocol error.
      *
      * The default is set by the endpoint that creates the connection.
@@ -559,11 +578,11 @@ public:
     size_t get_max_message_size() const {
         return m_max_message_size;
     }
-    
+
     /// Set maximum message size
     /**
-     * Set maximum message size. Maximum message size determines the point at 
-     * which the connection will fail with the message_too_big protocol error. 
+     * Set maximum message size. Maximum message size determines the point at
+     * which the connection will fail with the message_too_big protocol error.
      * This value may be changed during the connection.
      *
      * The default is set by the endpoint that creates the connection.
@@ -578,7 +597,7 @@ public:
             m_processor->set_max_message_size(new_value);
         }
     }
-    
+
     /// Get maximum HTTP message body size
     /**
      * Get maximum HTTP message body size. Maximum message body size determines
@@ -594,7 +613,7 @@ public:
     size_t get_max_http_body_size() const {
         return m_request.get_max_body_size();
     }
-    
+
     /// Set maximum HTTP message body size
     /**
      * Set maximum HTTP message body size. Maximum message body size determines
@@ -609,6 +628,22 @@ public:
      */
     void set_max_http_body_size(size_t new_value) {
         m_request.set_max_body_size(new_value);
+    }
+
+    /// Set minimum send buffer suze.
+    /**
+     * Set minimum buffer suze. When the minimum buffer size is reached the
+     * resume_send_handler will be called.
+     *
+     * @since 0.8.0
+     *
+     * @param new_value The value to set as the minmum buffer suze.
+     */
+    void set_min_send_buffer_size(size_t new_value) {
+        m_min_send_buffer_size = new_value;
+        if (m_processor) {
+            m_processor->set_min_send_buffer_size(new_value);
+        }
     }
 
     //////////////////////////////////
@@ -701,14 +736,14 @@ public:
      * @return An error code
      */
     lib::error_code interrupt();
-    
+
     /// Transport inturrupt callback
     void handle_interrupt();
-    
+
     /// Pause reading of new data
     /**
-     * Signals to the connection to halt reading of new data. While reading is paused, 
-     * the connection will stop reading from its associated socket. In turn this will 
+     * Signals to the connection to halt reading of new data. While reading is paused,
+     * the connection will stop reading from its associated socket. In turn this will
      * result in TCP based flow control kicking in and slowing data flow from the remote
      * endpoint.
      *
@@ -720,7 +755,7 @@ public:
      *
      * If supported by the transport this is done asynchronously. As such reading may not
      * stop until the current read operation completes. Typically you can expect to
-     * receive no more bytes after initiating a read pause than the size of the read 
+     * receive no more bytes after initiating a read pause than the size of the read
      * buffer.
      *
      * If reading is paused for this connection already nothing is changed.
@@ -974,7 +1009,7 @@ public:
 
     /// Get response HTTP status code
     /**
-     * Gets the response status code 
+     * Gets the response status code
      *
      * @since 0.7.0
      *
@@ -986,7 +1021,7 @@ public:
 
     /// Get response HTTP status message
     /**
-     * Gets the response status message 
+     * Gets the response status message
      *
      * @since 0.7.0
      *
@@ -995,7 +1030,7 @@ public:
     std::string const & get_response_msg() const {
         return m_response.get_status_msg();
     }
-    
+
     /// Set response status code and message
     /**
      * Sets the response status code to `code` and looks up the corresponding
@@ -1102,7 +1137,7 @@ public:
     request_type const & get_request() const {
         return m_request;
     }
-    
+
     /// Get response object
     /**
      * Direct access to the HTTP response sent or received as a part of the
@@ -1121,7 +1156,7 @@ public:
     response_type const & get_response() const {
         return m_response;
     }
-    
+
     /// Defer HTTP Response until later (Exception free)
     /**
      * Used in the http handler to defer the HTTP response for this connection
@@ -1136,7 +1171,7 @@ public:
      * @return A status code, zero on success, non-zero otherwise
      */
     lib::error_code defer_http_response();
-    
+
     /// Send deferred HTTP Response (exception free)
     /**
      * Sends an http response to an HTTP connection that was deferred. This will
@@ -1148,25 +1183,25 @@ public:
      * @param ec A status code, zero on success, non-zero otherwise
      */
     void send_http_response(lib::error_code & ec);
-    
+
     /// Send deferred HTTP Response
     void send_http_response();
-    
+
     // TODO HTTPNBIO: write_headers
     // function that processes headers + status so far and writes it to the wire
     // beginning the HTTP response body state. This method will ignore anything
     // in the response body.
-    
+
     // TODO HTTPNBIO: write_body_message
     // queues the specified message_buffer for async writing
-    
+
     // TODO HTTPNBIO: finish connection
     //
-    
+
     // TODO HTTPNBIO: write_response
     // Writes the whole response, headers + body and closes the connection
-    
-    
+
+
 
     /////////////////////////////////////////////////////////////
     // Pass-through access to the other connection information //
@@ -1286,7 +1321,7 @@ public:
     // you are doing.                                                     //
     ////////////////////////////////////////////////////////////////////////
 
-    
+
 
     void read_handshake(size_t num_bytes);
 
@@ -1295,7 +1330,7 @@ public:
     void handle_read_http_response(lib::error_code const & ec,
         size_t bytes_transferred);
 
-    
+
     void handle_write_http_response(lib::error_code const & ec);
     void handle_send_http_request(lib::error_code const & ec);
 
@@ -1337,8 +1372,8 @@ public:
      */
     void handle_write_frame(lib::error_code const & ec);
 // protected:
-    // This set of methods would really like to be protected, but doing so 
-    // requires that the endpoint be able to friend the connection. This is 
+    // This set of methods would really like to be protected, but doing so
+    // requires that the endpoint be able to friend the connection. This is
     // allowed with C++11, but not prior versions
 
     /// Start the connection state machine
@@ -1368,7 +1403,7 @@ protected:
     /// set m_response and return an error code indicating status.
     lib::error_code process_handshake_request();
 private:
-    
+
 
     /// Completes m_response, serializes it, and sends it out on the wire.
     void write_http_response(lib::error_code const & ec);
@@ -1474,7 +1509,7 @@ private:
      * Includes: error code and message for why it was failed
      */
     void log_fail_result();
-    
+
     /// Prints information about HTTP connections
     /**
      * Includes: TODO
@@ -1510,12 +1545,14 @@ private:
     http_handler            m_http_handler;
     validate_handler        m_validate_handler;
     message_handler         m_message_handler;
+    resume_send_handler     m_resume_send_handler;
 
     /// constant values
     long                    m_open_handshake_timeout_dur;
     long                    m_close_handshake_timeout_dur;
     long                    m_pong_timeout_dur;
     size_t                  m_max_message_size;
+    size_t                  m_min_send_buffer_size;
 
     /// External connection state
     /**
@@ -1592,6 +1629,9 @@ private:
     /// True if this connection is presently reading new data
     bool m_read_flag;
 
+    /// True if the min_send_buffer_size limit has been exceeded.
+    bool m_min_send_buffer_flag;
+
     // connection data
     request_type            m_request;
     response_type           m_response;
@@ -1623,11 +1663,11 @@ private:
 
     /// Detailed internal error code
     lib::error_code m_ec;
-    
+
     /// A flag that gets set once it is determined that the connection is an
     /// HTTP connection and not a WebSocket one.
     bool m_is_http;
-    
+
     /// A flag that gets set when the completion of an http connection is
     /// deferred until later.
     session::http_state::value m_http_state;

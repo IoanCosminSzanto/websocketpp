@@ -97,6 +97,7 @@ public:
       , m_pong_timeout_dur(config::timeout_pong)
       , m_max_message_size(config::max_message_size)
       , m_max_http_body_size(config::max_http_body_size)
+      , m_min_send_buffer_size(config::min_send_buffer_size)
       , m_is_server(p_is_server)
     {
         m_alog.set_channels(config::alog_level);
@@ -114,21 +115,21 @@ public:
     #ifdef _WEBSOCKETPP_DEFAULT_DELETE_FUNCTIONS_
         // no copy constructor because endpoints are not copyable
         endpoint(endpoint &) = delete;
-    
+
         // no copy assignment operator because endpoints are not copyable
         endpoint & operator=(endpoint const &) = delete;
     #endif // _WEBSOCKETPP_DEFAULT_DELETE_FUNCTIONS_
 
     #ifdef _WEBSOCKETPP_MOVE_SEMANTICS_
         /// Move constructor
-        endpoint(endpoint && o) 
+        endpoint(endpoint && o)
          : config::transport_type(std::move(o))
          , config::endpoint_base(std::move(o))
          , m_alog(std::move(o.m_alog))
          , m_elog(std::move(o.m_elog))
          , m_user_agent(std::move(o.m_user_agent))
          , m_open_handler(std::move(o.m_open_handler))
-         
+
          , m_close_handler(std::move(o.m_close_handler))
          , m_fail_handler(std::move(o.m_fail_handler))
          , m_ping_handler(std::move(o.m_ping_handler))
@@ -138,15 +139,17 @@ public:
          , m_http_handler(std::move(o.m_http_handler))
          , m_validate_handler(std::move(o.m_validate_handler))
          , m_message_handler(std::move(o.m_message_handler))
+         , m_resume_send_handler(std::move(o.m_resume_send_handler))
 
          , m_open_handshake_timeout_dur(o.m_open_handshake_timeout_dur)
          , m_close_handshake_timeout_dur(o.m_close_handshake_timeout_dur)
          , m_pong_timeout_dur(o.m_pong_timeout_dur)
          , m_max_message_size(o.m_max_message_size)
          , m_max_http_body_size(o.m_max_http_body_size)
+         , m_min_send_buffer_size(o.m_min_send_buffer_size)
 
          , m_rng(std::move(o.m_rng))
-         , m_is_server(o.m_is_server)         
+         , m_is_server(o.m_is_server)
         {}
 
     #ifdef _WEBSOCKETPP_DEFAULT_DELETE_FUNCTIONS_
@@ -324,6 +327,11 @@ public:
         scoped_lock_type guard(m_mutex);
         m_message_handler = h;
     }
+    void set_resume_send_handler(resume_send_handler h) {
+        m_alog.write(log::alevel::devel,"set_resume_send_handler");
+        scoped_lock_type guard(m_mutex);
+        m_resume_send_handler = h;
+    }
 
     //////////////////////////////////////////
     // Connection timeouts and other limits //
@@ -403,9 +411,9 @@ public:
 
     /// Get default maximum message size
     /**
-     * Get the default maximum message size that will be used for new 
+     * Get the default maximum message size that will be used for new
      * connections created by this endpoint. The maximum message size determines
-     * the point at which the connection will fail a connection with the 
+     * the point at which the connection will fail a connection with the
      * message_too_big protocol error.
      *
      * The default is set by the max_message_size value from the template config
@@ -415,10 +423,10 @@ public:
     size_t get_max_message_size() const {
         return m_max_message_size;
     }
-    
+
     /// Set default maximum message size
     /**
-     * Set the default maximum message size that will be used for new 
+     * Set the default maximum message size that will be used for new
      * connections created by this endpoint. Maximum message size determines the
      * point at which the connection will fail a connection with the
      * message_too_big protocol error.
@@ -449,7 +457,7 @@ public:
     size_t get_max_http_body_size() const {
         return m_max_http_body_size;
     }
-    
+
     /// Set maximum HTTP message body size
     /**
      * Set maximum HTTP message body size. Maximum message body size determines
@@ -465,6 +473,19 @@ public:
      */
     void set_max_http_body_size(size_t new_value) {
         m_max_http_body_size = new_value;
+    }
+
+    /// Set minimum send buffer suze.
+    /**
+     * Set minimum buffer suze. When the minimum buffer size is reached the
+     * resume_send_handler will be called.
+     *
+     * @since 0.8.0
+     *
+     * @param new_value The value to set as the minmum buffer suze.
+     */
+    void set_min_send_buffer_size(size_t new_value) {
+        m_min_send_buffer_size = new_value;
     }
 
     /*************************************/
@@ -484,32 +505,32 @@ public:
 
     /// Pause reading of new data (exception free)
     /**
-     * Signals to the connection to halt reading of new data. While reading is 
+     * Signals to the connection to halt reading of new data. While reading is
      * paused, the connection will stop reading from its associated socket. In
      * turn this will result in TCP based flow control kicking in and slowing
      * data flow from the remote endpoint.
      *
-     * This is useful for applications that push new requests to a queue to be 
+     * This is useful for applications that push new requests to a queue to be
      * processed by another thread and need a way to signal when their request
      * queue is full without blocking the network processing thread.
      *
      * Use `resume_reading()` to resume.
      *
      * If supported by the transport this is done asynchronously. As such
-     * reading may not stop until the current read operation completes. 
+     * reading may not stop until the current read operation completes.
      * Typically you can expect to receive no more bytes after initiating a read
      * pause than the size of the read buffer.
      *
      * If reading is paused for this connection already nothing is changed.
      */
     void pause_reading(connection_hdl hdl, lib::error_code & ec);
-    
+
     /// Pause reading of new data
     void pause_reading(connection_hdl hdl);
 
     /// Resume reading of new data (exception free)
     /**
-     * Signals to the connection to resume reading of new data after it was 
+     * Signals to the connection to resume reading of new data after it was
      * paused by `pause_reading()`.
      *
      * If reading is not paused for this connection already nothing is changed.
@@ -533,7 +554,7 @@ public:
      * @param ec A status code, zero on success, non-zero otherwise
      */
     void send_http_response(connection_hdl hdl, lib::error_code & ec);
-        
+
     /// Send deferred HTTP Response (exception free)
     /**
      * Sends an http response to an HTTP connection that was deferred. This will
@@ -677,12 +698,14 @@ private:
     http_handler                m_http_handler;
     validate_handler            m_validate_handler;
     message_handler             m_message_handler;
+    resume_send_handler         m_resume_send_handler;
 
     long                        m_open_handshake_timeout_dur;
     long                        m_close_handshake_timeout_dur;
     long                        m_pong_timeout_dur;
     size_t                      m_max_message_size;
     size_t                      m_max_http_body_size;
+    size_t                      m_min_send_buffer_size;
 
     rng_type m_rng;
 

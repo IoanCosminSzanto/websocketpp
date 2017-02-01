@@ -218,7 +218,7 @@ struct core {
     /// Default maximum message size
     /**
      * Default value for the processor's maximum message size. Maximum message size
-     * determines the point at which the library will fail a connection with the 
+     * determines the point at which the library will fail a connection with the
      * message_too_big protocol error.
      *
      * The default is 32MB
@@ -226,7 +226,7 @@ struct core {
      * @since 0.3.0
      */
     static const size_t max_message_size = 32000000;
-    
+
     /// Default maximum http body size
     /**
      * Default value for the http parser's maximum body size. Maximum body size
@@ -241,6 +241,15 @@ struct core {
 
     /// Global flag for enabling/disabling extensions
     static const bool enable_extensions = true;
+
+    /// Default minimum buffer size threshold.
+    /**
+     * Default value for notifying that the amount of buffered bytes is below
+     * the threshold. If 0 it notifies when the send queue becomes empty.
+     *
+     * @since 0.8.0
+     */
+    static const size_t min_send_buffer_size = 0;
 
     /// Extension specific settings:
 

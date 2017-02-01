@@ -108,7 +108,7 @@ int get_websocket_version(request_type& r) {
     if (!r.ready()) {
         return -2;
     }
-    
+
     if (r.get_header("Sec-WebSocket-Version").empty()) {
         return 0;
     }
@@ -169,6 +169,7 @@ public:
       : m_secure(secure)
       , m_server(p_is_server)
       , m_max_message_size(config::max_message_size)
+      , m_min_send_buffer_size(config::min_send_buffer_size)
     {}
 
     virtual ~processor() {}
@@ -188,7 +189,7 @@ public:
     size_t get_max_message_size() const {
         return m_max_message_size;
     }
-    
+
     /// Set maximum message size
     /**
      * Set maximum message size. Maximum message size determines the point at which the
@@ -202,6 +203,19 @@ public:
      */
     void set_max_message_size(size_t new_value) {
         m_max_message_size = new_value;
+    }
+
+    /// Set minimum send buffer suze.
+    /**
+     * Set minimum buffer suze. When the minimum buffer size is reached the
+     * resume_send_handler will be called.
+     *
+     * @since 0.8.0
+     *
+     * @param new_value The value to set as the minmum buffer suze.
+     */
+    void set_min_send_buffer_size(size_t new_value) {
+        m_min_send_buffer_size = new_value;
     }
 
     /// Returns whether or not the permessage_compress extension is implemented
@@ -225,7 +239,7 @@ public:
     virtual err_str_pair negotiate_extensions(request_type const &) {
         return err_str_pair();
     }
-    
+
     /// Initializes extensions based on the Sec-WebSocket-Extensions header
     /**
      * Reads the Sec-WebSocket-Extensions header and determines if any of the
@@ -366,7 +380,7 @@ public:
      * @param out The message buffer to prepare the ping in.
      * @return Status code, zero on success, non-zero on failure
      */
-    virtual lib::error_code prepare_ping(std::string const & in, message_ptr out) const 
+    virtual lib::error_code prepare_ping(std::string const & in, message_ptr out) const
         = 0;
 
     /// Prepare a pong frame
@@ -378,7 +392,7 @@ public:
      * @param out The message buffer to prepare the pong in.
      * @return Status code, zero on success, non-zero on failure
      */
-    virtual lib::error_code prepare_pong(std::string const & in, message_ptr out) const 
+    virtual lib::error_code prepare_pong(std::string const & in, message_ptr out) const
         = 0;
 
     /// Prepare a close frame
@@ -399,6 +413,7 @@ protected:
     bool const m_secure;
     bool const m_server;
     size_t m_max_message_size;
+    size_t m_min_send_buffer_size;
 };
 
 } // namespace processor
