@@ -243,9 +243,11 @@ struct core {
     static const bool enable_extensions = true;
 
     /// Default minimum buffer size threshold.
+
+    /// Default minimum buffer size threshold.
     /**
-     * Default value for notifying that the amount of buffered bytes is below
-     * the threshold. If 0 it notifies when the send queue becomes empty.
+     * Default value for notifying that the minimum amount of buffered bytes.
+     * has been reached..
      *
      * @since 0.8.0
      */
